@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SERVICE_USER="${SUDO_USER:-${USER:-andre}}"
+SERVICE_GROUP="$(id -gn "$SERVICE_USER" 2>/dev/null || printf '%s' "$SERVICE_USER")"
+SERVER_LAN_IP="192.168.0.10"
+
+if [ -r /etc/cameras-cassa/config.env ]; then
+  # shellcheck disable=SC1091
+  source /etc/cameras-cassa/config.env
+fi
+
+echo "== scripts =="
+for name in camera-upload-segment camera-retry-upload camera-buffer-guard camera-drive-retention; do
+  echo
+  echo "===== $name ====="
+  if [ -f "/usr/local/bin/$name" ]; then
+    diff -u "$ROOT/scripts/$name" "/usr/local/bin/$name" || true
+  else
+    echo "MISSING: /usr/local/bin/$name"
+  fi
+done
+
+echo
+echo "== web =="
+if [ -f /opt/cameras-cassa/web/index.html ]; then
+  diff -u "$ROOT/web/index.html" /opt/cameras-cassa/web/index.html || true
+elif [ -f "/home/$SERVICE_USER/camera-web/index.html" ]; then
+  diff -u "$ROOT/web/index.html" "/home/$SERVICE_USER/camera-web/index.html" || true
+else
+  echo "MISSING: installed camera web index"
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+echo
+echo "== systemd =="
+for unit in "$ROOT"/systemd/*; do
+  name="$(basename "$unit")"
+  sed     -e "s/__SERVICE_USER__/$SERVICE_USER/g"     -e "s/__SERVICE_GROUP__/$SERVICE_GROUP/g"     -e "s/__SERVER_LAN_IP__/$SERVER_LAN_IP/g"     "$unit" > "$tmp/$name"
+
+  echo
+  echo "===== $name ====="
+  if [ -f "/etc/systemd/system/$name" ]; then
+    diff -u "$tmp/$name" "/etc/systemd/system/$name" || true
+  else
+    echo "MISSING: /etc/systemd/system/$name"
+  fi
+done
+
+redact_urls() {
+  sed -E     -e 's#(rtsp://[^:]+:)[^@[:space:]'"'"']+@#\1***@#g'     -e 's#(dvrip://[^:]+:)[^@[:space:]'"'"']+@#\1***@#g'
+}
+
+echo
+echo "== MediaMTX runtime config (redacted) =="
+if [ -r /etc/mediamtx.env ]; then
+  redact_urls < /etc/mediamtx.env
+else
+  echo "MISSING: /etc/mediamtx.env"
+fi
+
+echo
+echo "== go2rtc runtime config (redacted) =="
+if [ -r /etc/go2rtc.yaml ]; then
+  redact_urls < /etc/go2rtc.yaml
+elif [ -r /tmp/go2rtc.yaml ]; then
+  echo "NOTE: using temporary /tmp/go2rtc.yaml"
+  redact_urls < /tmp/go2rtc.yaml
+else
+  echo "MISSING: go2rtc runtime config"
+fi
