@@ -31,7 +31,24 @@ Replace a proprietary DVR/NVR dependency with a small, auditable Linux stack usi
     camera DVRIP :37777 backchannel --+--> go2rtc /camera1-talk
                                              |
                                              v
+                                           Caddy
+                                      HTTPS / WebSocket
+                                             |
+                                             v
                                          Browser
+
+## HTTPS
+
+Caddy terminates HTTPS on port 8443 with an internal CA.
+
+The dashboard backend listens only on 127.0.0.1:8090. go2rtc's HTTP/WebSocket API listens only on 127.0.0.1:1984. Caddy publishes both under a single HTTPS origin:
+
+- / -> dashboard
+- /go2rtc/* -> go2rtc
+
+The go2rtc WebRTC media transport still uses port 8555.
+
+Each client device must trust Caddy's local root CA once. This is required for browser microphone access because getUserMedia only works in a secure context.
 
 ## Storage behavior
 
@@ -50,13 +67,9 @@ camera-drive-retention removes remote recordings older than RETENTION_DAYS.
 - 554/tcp on camera: RTSP source
 - 37777/tcp on camera: DVRIP / talkback
 - 8554/tcp on server: MediaMTX internal RTSP
-- 8888/tcp: MediaMTX HLS
-- 8889/tcp + 8189/udp: MediaMTX WebRTC
-- 1984/tcp + 8555 tcp/udp: go2rtc
-- 8090/tcp: local dashboard
+- 8555/tcp+udp: go2rtc WebRTC media
+- 8443/tcp: local HTTPS dashboard
+- 8090/tcp: loopback-only dashboard backend
+- 1984/tcp: loopback-only go2rtc API
 
 No public internet exposure is required.
-
-## Microphone caveat
-
-Browser microphone access requires a secure context. localhost works as an exception; ordinary HTTP on a LAN IP does not. The current stack therefore supports talkback through localhost/SSH tunneling. Trusted local HTTPS is a future infrastructure step.
