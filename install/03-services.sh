@@ -15,13 +15,12 @@ for unit in "$ROOT"/systemd/*; do
   chmod 0644 "/etc/systemd/system/$name"
 done
 
+sed   -e "s/__SERVER_LAN_IP__/$SERVER_LAN_IP/g"   "$ROOT/caddy/Caddyfile" > /etc/caddy/Caddyfile
+
 ufw allow OpenSSH >/dev/null
-for port in 8090 1984 8555 8888 8889; do
-  ufw allow from "$LAN_CIDR" to any port "$port" proto tcp >/dev/null
-done
-for port in 8555 8189; do
-  ufw allow from "$LAN_CIDR" to any port "$port" proto udp >/dev/null
-done
+ufw allow from "$LAN_CIDR" to any port 8443 proto tcp >/dev/null
+ufw allow from "$LAN_CIDR" to any port 8555 proto tcp >/dev/null
+ufw allow from "$LAN_CIDR" to any port 8555 proto udp >/dev/null
 
 if ! ufw status | grep -q '^Status: active'; then
   printf "UFW is inactive. Enable it now? [y/N]: " >/dev/tty
@@ -48,14 +47,14 @@ systemctl enable --now mediamtx.service
 systemctl enable --now camera1-webrtc-audio.service
 systemctl enable --now go2rtc.service
 systemctl enable --now camera-web.service
+systemctl enable --now caddy.service
+systemctl restart caddy.service
 systemctl enable --now camera-retry-upload.timer
 systemctl enable --now camera-buffer-guard.timer
 systemctl enable --now camera-drive-retention.timer
 
 echo
-echo "Dashboard: http://$SERVER_LAN_IP:8090"
-echo "MediaMTX HLS: http://$SERVER_LAN_IP:8888/camera1/"
-echo "MediaMTX WebRTC: http://$SERVER_LAN_IP:8889/camera1/"
-echo "go2rtc: http://$SERVER_LAN_IP:1984/"
+echo "Dashboard: https://$SERVER_LAN_IP:8443"
+echo "Caddy local CA: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
 echo
-echo "Microphone access in browsers requires HTTPS or localhost."
+echo "Install that root CA certificate on each client device once."
