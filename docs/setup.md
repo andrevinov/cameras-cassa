@@ -31,11 +31,25 @@ For a headless server, a local SSH callback tunnel can be used during rclone aut
 
 Then run rclone config on the server and open the localhost authorization URL in the desktop browser.
 
+## Local HTTPS
+
+The dashboard is exposed through Caddy:
+
+    https://SERVER_LAN_IP:8443
+
+Caddy uses an internal CA. Its root certificate is normally stored at:
+
+    /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+
+Install that root CA certificate on every household client that should use microphone/talkback. Chrome recognizes custom root certificates installed in the operating system trust store.
+
+The dashboard and go2rtc HTTP API stay bound to loopback; Caddy is the only LAN-facing HTTP(S) entry point.
+
 ## Validation
 
 Services:
 
-    systemctl status mediamtx go2rtc camera1-webrtc-audio camera-web
+    systemctl status mediamtx go2rtc camera1-webrtc-audio camera-web caddy
 
 Timers:
 
@@ -48,14 +62,6 @@ Drive:
 Upload log:
 
     tail -f /var/log/cameras-cassa/upload.log
-
-## Local UI
-
-Dashboard:
-
-    http://SERVER_LAN_IP:8090
-
-Video and audio work over the LAN. Browser microphone permission requires HTTPS or localhost.
 
 ## Re-running install.sh
 
