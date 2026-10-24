@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /etc/cameras-cassa/config.env
+
+REMOTE="$RCLONE_REMOTE:$RCLONE_BASE_PATH"
+LOG="$CAMERA_LOG_DIR/retention.log"
+
+mkdir -p "$CAMERA_LOG_DIR"
+
+{
+  echo "[$(date --iso-8601=seconds)] deleting Drive recordings older than ${RETENTION_DAYS}d"
+  rclone delete "$REMOTE" --min-age "${RETENTION_DAYS}d" --rmdirs
+  echo "[$(date --iso-8601=seconds)] retention complete"
+} >>"$LOG" 2>&1

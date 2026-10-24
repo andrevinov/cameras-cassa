@@ -1,0 +1,25 @@
+# Runtime secrets
+*.env
+!*.example.env
+secrets.env
+rclone.conf
+go2rtc.yaml
+
+# Certificates / private keys
+*.key
+*.crt
+*.pem
+!*.example.pem
+
+# Local recordings and state
+cameras-buffer/
+recordings/
+state/
+logs/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

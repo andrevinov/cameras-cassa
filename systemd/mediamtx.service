@@ -1,0 +1,16 @@
+[Unit]
+Description=MediaMTX camera media router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+WorkingDirectory=/usr/local/etc/mediamtx
+EnvironmentFile=/etc/mediamtx.env
+ExecStart=/usr/local/bin/mediamtx
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

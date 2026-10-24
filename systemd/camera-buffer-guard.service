@@ -1,0 +1,8 @@
+[Unit]
+Description=Camera buffer disk guard
+
+[Service]
+Type=oneshot
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+ExecStart=/usr/local/bin/camera-buffer-guard

@@ -1,0 +1,15 @@
+# Generated runtime file is /etc/go2rtc.yaml and MUST NOT be committed.
+
+api:
+  listen: ":1984"
+
+rtsp:
+  listen: ""
+
+webrtc:
+  listen: ":8555"
+
+streams:
+  camera1-talk:
+    - rtsp://127.0.0.1:8554/camera1-web#backchannel=0
+    - dvrip://admin:CHANGE_ME@192.168.0.9:37777?backchannel=1

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /etc/cameras-cassa/config.env
+
+FILE="${MTX_SEGMENT_PATH:?MTX_SEGMENT_PATH is not defined}"
+BASE="$CAMERA_BUFFER_DIR"
+REMOTE="$RCLONE_REMOTE:$RCLONE_BASE_PATH"
+LOG="$CAMERA_LOG_DIR/upload.log"
+LOCK="$CAMERA_STATE_DIR/upload.lock"
+
+case "$FILE" in
+  "$BASE"/*) ;;
+  *)
+    echo "Refusing path outside buffer: $FILE" >&2
+    exit 2
+    ;;
+esac
+
+REL="${FILE#"$BASE"/}"
+
+mkdir -p "$CAMERA_LOG_DIR" "$CAMERA_STATE_DIR"
+
+(
+  flock -x 9
+  {
+    echo "[$(date --iso-8601=seconds)] upload: $REL"
+    rclone moveto "$FILE" "$REMOTE/$REL" --no-traverse
+    echo "[$(date --iso-8601=seconds)] ok: $REL"
+  } >>"$LOG" 2>&1
+) 9>"$LOCK"

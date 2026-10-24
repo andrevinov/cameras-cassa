@@ -1,0 +1,10 @@
+[Unit]
+Description=Apply Google Drive camera retention daily
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

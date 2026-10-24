@@ -1,0 +1,10 @@
+[Unit]
+Description=Delete expired camera recordings from Google Drive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=__SERVICE_USER__
+Group=__SERVICE_GROUP__
+ExecStart=/usr/local/bin/camera-drive-retention

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /etc/cameras-cassa/config.env
+
+BASE="$CAMERA_BUFFER_DIR"
+REMOTE="$RCLONE_REMOTE:$RCLONE_BASE_PATH"
+LOG="$CAMERA_LOG_DIR/retry.log"
+LOCK="$CAMERA_STATE_DIR/upload.lock"
+
+mkdir -p "$CAMERA_LOG_DIR" "$CAMERA_STATE_DIR"
+
+(
+  flock -x 9
+
+  find "$BASE" -type f -mmin +"$RETRY_MIN_AGE_MINUTES" -print0 |
+  while IFS= read -r -d '' FILE; do
+    # Never touch a file that MediaMTX (or another process) still has open.
+    if fuser "$FILE" >/dev/null 2>&1; then
+      continue
+    fi
+
+    REL="${FILE#"$BASE"/}"
+
+    {
+      echo "[$(date --iso-8601=seconds)] retry: $REL"
+      if rclone moveto "$FILE" "$REMOTE/$REL" --no-traverse; then
+        echo "[$(date --iso-8601=seconds)] ok: $REL"
+      else
+        echo "[$(date --iso-8601=seconds)] failed: $REL"
+      fi
+    } >>"$LOG" 2>&1
+  done
+) 9>"$LOCK"

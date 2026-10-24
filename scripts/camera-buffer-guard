@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+source /etc/cameras-cassa/config.env
+
+BUFFER="$CAMERA_BUFFER_DIR"
+LOG="$CAMERA_LOG_DIR/buffer-guard.log"
+LOCK="$CAMERA_STATE_DIR/upload.lock"
+
+mkdir -p "$CAMERA_LOG_DIR" "$CAMERA_STATE_DIR"
+
+free_gb() {
+  df -BG --output=avail "$BUFFER" | tail -1 | tr -dc '0-9'
+}
+
+(
+  flock -x 9
+
+  while [ "$(free_gb)" -lt "$MIN_FREE_GB" ]; do
+    FILE="$(
+      find "$BUFFER" -type f -mmin +"$BUFFER_GUARD_MIN_AGE_MINUTES" -printf '%T@ %p\n' |
+      sort -n |
+      head -1 |
+      cut -d' ' -f2-
+    )"
+
+    if [ -z "$FILE" ]; then
+      echo "[$(date --iso-8601=seconds)] low disk but no safe old segment can be deleted" >>"$LOG"
+      break
+    fi
+
+    if fuser "$FILE" >/dev/null 2>&1; then
+      echo "[$(date --iso-8601=seconds)] skipping open file: $FILE" >>"$LOG"
+      break
+    fi
+
+    echo "[$(date --iso-8601=seconds)] low disk: deleting oldest local segment: $FILE" >>"$LOG"
+    rm -f -- "$FILE"
+  done
+) 9>"$LOCK"
