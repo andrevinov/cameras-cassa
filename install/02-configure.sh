@@ -109,7 +109,7 @@ chmod 0640 /etc/mediamtx.env
 
 cat > /etc/go2rtc.yaml <<EOF
 api:
-  listen: ":1984"
+  listen: "127.0.0.1:1984"
 rtsp:
   listen: ""
 webrtc:
