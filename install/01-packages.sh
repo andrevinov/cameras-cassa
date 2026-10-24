@@ -16,7 +16,7 @@ esac
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl ca-certificates ffmpeg python3 ufw psmisc tar
+apt-get install -y curl ca-certificates caddy ffmpeg python3 ufw psmisc tar
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -33,4 +33,4 @@ install -m 0644 "$tmp/mediamtx.yml" /usr/local/etc/mediamtx/mediamtx.yml
 curl -fL "https://github.com/AlexxIT/go2rtc/releases/download/v$GO2RTC_VERSION/go2rtc_linux_${ARCH}" -o /usr/local/bin/go2rtc
 chmod 0755 /usr/local/bin/go2rtc
 
-echo "Installed MediaMTX $MEDIAMTX_VERSION, go2rtc $GO2RTC_VERSION, FFmpeg and rclone."
+echo "Installed Caddy, MediaMTX $MEDIAMTX_VERSION, go2rtc $GO2RTC_VERSION, FFmpeg and rclone."
