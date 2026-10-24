@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Como o projeto pessoal cameras_casa prevê acessar, usar e armazenar dados para backup de gravações no Google Drive.">
+  <title>Política de privacidade — cameras_casa</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20302b; background: #f3f5f2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.7; }
+    main { width: min(100% - 40px, 800px); margin: 56px auto; padding: 40px 48px; background: #fff; border: 1px solid #dfe6df; border-radius: 16px; }
+    header { padding-bottom: 24px; border-bottom: 1px solid #dfe6df; }
+    .eyebrow { margin: 0 0 8px; color: #42674c; font-size: .8rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    h1 { margin: 0 0 12px; font-size: clamp(1.8rem, 5vw, 2.5rem); line-height: 1.2; overflow-wrap: anywhere; }
+    .lead { margin: 0; color: #4b5b53; }
+    h2 { margin: 28px 0 8px; font-size: 1.2rem; line-height: 1.4; }
+    p { margin: 0 0 14px; }
+    a { color: #23623a; text-underline-offset: 3px; overflow-wrap: anywhere; }
+    a:hover { color: #153b23; }
+    a:focus-visible { outline: 3px solid #86b99a; outline-offset: 4px; }
+    code { padding: 2px 5px; border-radius: 4px; background: #edf3ee; font-size: .9em; }
+    footer { margin-top: 28px; padding-top: 20px; border-top: 1px solid #dfe6df; color: #536259; font-size: .9rem; }
+    footer p { margin: 0 0 8px; }
+    @media (max-width: 540px) { main { width: min(100% - 24px, 800px); margin: 20px auto; padding: 28px 22px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">cameras_casa</p>
+      <h1>Política de privacidade</h1>
+      <p class="lead">Última atualização: 23 de outubro de 2026.</p>
+    </header>
+    <section aria-labelledby="escopo">
+      <h2 id="escopo">1. Projeto e finalidade</h2>
+      <p>Esta política descreve o uso previsto de dados pelo cameras_casa, um projeto pessoal de André, atualmente em configuração. Sua finalidade é guardar cópias de gravações de câmeras domésticas na conta Google Drive autorizada pelo responsável.</p>
+      <p>A automação de gravação e envio ainda está sendo preparada. As práticas descritas a seguir correspondem ao funcionamento planejado e deverão ser atualizadas se esse funcionamento mudar.</p>
+    </section>
+    <section aria-labelledby="dados">
+      <h2 id="dados">2. Dados utilizados e acesso autorizado</h2>
+      <p>O sistema utilizará os arquivos de vídeo e áudio produzidos localmente e os metadados necessários à sua organização e transferência, como nomes, tamanhos, datas e identificadores de arquivos e pastas.</p>
+      <p>A integração com o Google Drive utilizará o rclone com a permissão <code>drive.file</code>. Nesse fluxo, o acesso se limita aos arquivos e pastas criados pela integração, para enviar, consultar, organizar e gerenciar as gravações.</p>
+      <p>Para manter a autorização, o rclone armazenará tokens OAuth no arquivo de configuração do computador local do responsável. Esses tokens e outras credenciais não fazem parte destas páginas públicas.</p>
+    </section>
+    <section aria-labelledby="uso">
+      <h2 id="uso">3. Uso, armazenamento e compartilhamento</h2>
+      <p>As gravações serão armazenadas temporariamente no computador local e enviadas ao Google Drive da conta autorizada. Os dados serão utilizados para esse backup pessoal e sua organização.</p>
+      <p>O Google receberá os arquivos para prestar o serviço de armazenamento do Drive. O projeto não prevê publicidade, venda dos dados ou compartilhamento automático das gravações com outros usuários. Qualquer compartilhamento feito pelo responsável será controlado pelas permissões do próprio Drive.</p>
+      <p>Estas páginas públicas apresentam o projeto e a política de privacidade. Elas não hospedam nem exibem as gravações.</p>
+    </section>
+    <section aria-labelledby="retencao">
+      <h2 id="retencao">4. Retenção e exclusão</h2>
+      <p>O procedimento planejado removerá a cópia local de cada gravação somente depois de seu envio ser concluído com sucesso. Em caso de falha no envio, o arquivo permanecerá pendente no computador local, sujeito ao espaço disponível.</p>
+      <p>Ainda não foi definido um prazo de exclusão automática das gravações no Google Drive. O responsável poderá gerenciá-las e excluí-las diretamente pelo Drive, conforme as opções e regras desse serviço. Uma regra de retenção automática será documentada nesta política quando for configurada.</p>
+    </section>
+    <section aria-labelledby="revogacao">
+      <h2 id="revogacao">5. Controle da autorização</h2>
+      <p>O responsável poderá remover a autorização do aplicativo na seção de <a href="https://myaccount.google.com/connections">conexões da Conta Google</a>. A remoção impede novos acessos autorizados da integração ao Drive; não exclui automaticamente os arquivos já armazenados.</p>
+      <p>A interrupção da gravação local e a exclusão dos arquivos locais ou do Drive devem ser realizadas separadamente pelo responsável.</p>
+    </section>
+    <section aria-labelledby="site">
+      <h2 id="site">6. Visitas a este site</h2>
+      <p>Estas páginas são estáticas e não incluem formulários, ferramentas de análise de audiência, anúncios ou cookies próprios do projeto. A hospedagem é feita pelo GitHub Pages, que pode registrar dados técnicos das visitas, incluindo o endereço IP para segurança, conforme a <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">Política de Privacidade do GitHub</a>.</p>
+    </section>
+    <section aria-labelledby="contato">
+      <h2 id="contato">7. Contato e alterações</h2>
+      <p>Responsável pelo projeto: André. Para dúvidas sobre o projeto ou o tratamento dos dados, entre em contato pelo e-mail <a href="mailto:alac1984@gmail.com">alac1984@gmail.com</a>.</p>
+      <p>Esta política será atualizada quando houver mudanças no funcionamento do projeto ou no tratamento dos dados. A data da versão está indicada no início desta página.</p>
+    </section>
+    <footer>
+      <p><a href="./">Voltar à apresentação do cameras_casa</a></p>
+    </footer>
+  </main>
+</body>
+</html>
