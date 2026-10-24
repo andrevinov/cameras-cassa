@@ -12,11 +12,10 @@
     main{max-width:1200px;margin:auto;padding:20px}
     .camera{background:#1c1c1c;border:1px solid #333;border-radius:10px;overflow:hidden}
     .camera h2{margin:0;padding:12px 16px;font-size:18px}
-    video{display:block;width:100%;aspect-ratio:16/9;background:#000;object-fit:contain}
+    iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}
     .actions{display:flex;flex-wrap:wrap;gap:10px;padding:12px;align-items:center}
     button{min-height:42px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#292929;color:#fff;cursor:pointer}
     button.active{background:#7b2020;border-color:#aa3030}
-    button:disabled{opacity:.45;cursor:not-allowed}
     .volume{display:flex;align-items:center;gap:8px;color:#ccc}
     .volume input{width:150px}
     .status{padding:0 16px 14px;color:#aaa;font-size:13px}
@@ -28,7 +27,11 @@
   <section class="camera">
     <h2>Câmera 1</h2>
 
-    <video id="camera1" autoplay playsinline muted></video>
+    <iframe
+      id="camera1"
+      allow="autoplay; microphone"
+      src="/go2rtc/webrtc.html?src=camera1-talk&media=video+audio">
+    </iframe>
 
     <div class="actions">
       <button id="soundButton">🔇 Ligar som</button>
@@ -42,221 +45,99 @@
       <button id="reconnectButton">↻ Reconectar</button>
     </div>
 
-    <div class="status" id="status">Conectando...</div>
+    <div class="status" id="status">Online · vídeo + áudio</div>
   </section>
 </main>
 
 <script>
-const video = document.getElementById("camera1");
+const iframe = document.getElementById("camera1");
 const soundButton = document.getElementById("soundButton");
 const volume = document.getElementById("volume");
 const talkButton = document.getElementById("talkButton");
 const reconnectButton = document.getElementById("reconnectButton");
 const status = document.getElementById("status");
 
-const host = window.location.hostname;
-const go2rtcPort = 1984;
-
-let pc = null;
-let ws = null;
-let micStream = null;
 let talking = false;
 let soundEnabled = false;
-let generation = 0;
 
-function closeConnection() {
-  generation += 1;
-
-  if (ws) {
-    try { ws.close(); } catch (_) {}
-    ws = null;
+function playerVideo() {
+  try {
+    return iframe.contentDocument?.getElementById("video") || null;
+  } catch (_) {
+    return null;
   }
-
-  if (pc) {
-    try { pc.close(); } catch (_) {}
-    pc = null;
-  }
-
-  if (micStream) {
-    for (const track of micStream.getTracks()) {
-      track.stop();
-    }
-    micStream = null;
-  }
-
-  video.srcObject = null;
 }
 
-async function connectCamera(withMicrophone = false) {
-  closeConnection();
-  const myGeneration = generation;
+function applyAudioState() {
+  const video = playerVideo();
+  if (!video) return;
 
-  status.textContent = withMicrophone
-    ? "Conectando vídeo, áudio e microfone..."
-    : "Conectando vídeo e áudio...";
+  video.muted = !soundEnabled;
+  video.volume = Number(volume.value);
 
+  if (soundEnabled) {
+    video.play().catch(() => {});
+  }
+}
+
+function playerUrl(withMicrophone) {
   const media = withMicrophone
     ? "video+audio+microphone"
     : "video+audio";
 
-  const localPc = new RTCPeerConnection({
-    iceServers: [
-      { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }
-    ]
-  });
-
-  pc = localPc;
-
-  const playbackTracks = [];
-
-  try {
-    if (withMicrophone) {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microfone exige HTTPS ou localhost.");
-      }
-
-      micStream = await navigator.mediaDevices.getUserMedia({
-        video: false,
-        audio: true
-      });
-
-      for (const track of micStream.getAudioTracks()) {
-        localPc.addTransceiver(track, { direction: "sendonly" });
-      }
-    }
-
-    for (const kind of ["video", "audio"]) {
-      const transceiver = localPc.addTransceiver(kind, { direction: "recvonly" });
-      playbackTracks.push(transceiver.receiver.track);
-    }
-
-    video.srcObject = new MediaStream(playbackTracks);
-    video.muted = !soundEnabled;
-    video.volume = Number(volume.value);
-
-    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsUrl =
-      wsProtocol + "://" + host + ":" + go2rtcPort +
-      "/api/ws?src=camera1-talk&media=" + media;
-
-    const localWs = new WebSocket(wsUrl);
-    ws = localWs;
-
-    localWs.addEventListener("open", async () => {
-      if (myGeneration !== generation) return;
-
-      localPc.addEventListener("icecandidate", (event) => {
-        if (!event.candidate || localWs.readyState !== WebSocket.OPEN) return;
-
-        localWs.send(JSON.stringify({
-          type: "webrtc/candidate",
-          value: event.candidate.candidate
-        }));
-      });
-
-      const offer = await localPc.createOffer();
-      await localPc.setLocalDescription(offer);
-
-      localWs.send(JSON.stringify({
-        type: "webrtc/offer",
-        value: localPc.localDescription.sdp
-      }));
-    });
-
-    localWs.addEventListener("message", async (event) => {
-      if (myGeneration !== generation) return;
-
-      const message = JSON.parse(event.data);
-
-      if (message.type === "webrtc/candidate") {
-        await localPc.addIceCandidate({
-          candidate: message.value,
-          sdpMid: "0"
-        });
-      } else if (message.type === "webrtc/answer") {
-        await localPc.setRemoteDescription({
-          type: "answer",
-          sdp: message.value
-        });
-      }
-    });
-
-    localWs.addEventListener("error", () => {
-      if (myGeneration === generation) {
-        status.textContent = "Erro na conexão com go2rtc";
-      }
-    });
-
-    localPc.addEventListener("connectionstatechange", () => {
-      if (myGeneration !== generation) return;
-
-      if (localPc.connectionState === "connected") {
-        status.textContent = withMicrophone
-          ? "Online · vídeo + áudio · microfone ativo"
-          : "Online · vídeo + áudio";
-      } else if (["failed", "disconnected"].includes(localPc.connectionState)) {
-        status.textContent = "Conexão interrompida";
-      }
-    });
-
-    await video.play().catch(() => {});
-  } catch (error) {
-    console.error(error);
-
-    if (myGeneration === generation) {
-      status.textContent = error.message || "Erro ao conectar";
-    }
-
-    if (withMicrophone) {
-      talking = false;
-      talkButton.textContent = "🎙 Falar";
-      talkButton.classList.remove("active");
-    }
-  }
+  return "/go2rtc/webrtc.html?src=camera1-talk&media=" + media;
 }
 
-soundButton.addEventListener("click", async () => {
+function reconnect() {
+  iframe.src = playerUrl(talking);
+}
+
+iframe.addEventListener("load", () => {
+  applyAudioState();
+
+  status.textContent = talking
+    ? "Online · vídeo + áudio · microfone ativo"
+    : "Online · vídeo + áudio";
+});
+
+soundButton.addEventListener("click", () => {
   soundEnabled = !soundEnabled;
-  video.muted = !soundEnabled;
 
-  if (soundEnabled) {
-    soundButton.textContent = "🔊 Desligar som";
-    await video.play().catch(() => {});
-  } else {
-    soundButton.textContent = "🔇 Ligar som";
-  }
+  soundButton.textContent = soundEnabled
+    ? "🔊 Desligar som"
+    : "🔇 Ligar som";
+
+  applyAudioState();
 });
 
-volume.addEventListener("input", () => {
-  video.volume = Number(volume.value);
-});
+volume.addEventListener("input", applyAudioState);
 
-talkButton.addEventListener("click", async () => {
-  if (!talking && !window.isSecureContext) {
-    status.textContent = "Microfone bloqueado: use HTTPS ou localhost.";
+talkButton.addEventListener("click", () => {
+  if (!window.isSecureContext) {
+    status.textContent = "Microfone bloqueado: abra o painel por HTTPS.";
     return;
   }
 
   talking = !talking;
 
-  if (talking) {
-    talkButton.textContent = "⏹ Parar de falar";
-    talkButton.classList.add("active");
-  } else {
-    talkButton.textContent = "🎙 Falar";
-    talkButton.classList.remove("active");
-  }
+  talkButton.textContent = talking
+    ? "⏹ Parar de falar"
+    : "🎙 Falar";
 
-  await connectCamera(talking);
+  talkButton.classList.toggle("active", talking);
+
+  status.textContent = talking
+    ? "Solicitando acesso ao microfone..."
+    : "Reconectando sem microfone...";
+
+  reconnect();
 });
 
-reconnectButton.addEventListener("click", () => {
-  connectCamera(talking);
-});
+reconnectButton.addEventListener("click", reconnect);
 
-window.addEventListener("beforeunload", closeConnection);
-
-connectCamera(false);
+if (!window.isSecureContext) {
+  status.textContent = "Abra este painel pela URL HTTPS.";
+}
 </script>
 </body>
 </html>
