@@ -11,7 +11,7 @@ source /etc/cameras-cassa/config.env
 
 for unit in "$ROOT"/systemd/*; do
   name="$(basename "$unit")"
-  sed     -e "s/__SERVICE_USER__/$SERVICE_USER/g"     -e "s/__SERVICE_GROUP__/$SERVICE_GROUP/g"     "$unit" > "/etc/systemd/system/$name"
+  sed     -e "s/__SERVICE_USER__/$SERVICE_USER/g"     -e "s/__SERVICE_GROUP__/$SERVICE_GROUP/g"     -e "s/__SERVER_LAN_IP__/$SERVER_LAN_IP/g"     "$unit" > "/etc/systemd/system/$name"
   chmod 0644 "/etc/systemd/system/$name"
 done
 
