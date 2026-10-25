@@ -4,12 +4,12 @@ The dashboard uses application-level authentication so the camera page and the p
 
 ## Components
 
-- FastAPI application on `127.0.0.1:8090`.
-- SQLite user database at `/var/lib/cameras-cassa/users.sqlite3`.
-- Argon2id password hashes via `argon2-cffi`.
+- FastAPI application on 127.0.0.1:8090.
+- SQLite user database at /var/lib/cameras-cassa/users.sqlite3.
+- Argon2id password hashes via argon2-cffi.
 - Signed, Secure, HttpOnly session cookie.
 - CSRF tokens on login/logout forms.
-- go2rtc HTTP and WebSocket traffic proxied through the authenticated application under `/go2rtc/`.
+- go2rtc HTTP and WebSocket traffic proxied through the authenticated application under /go2rtc/.
 - Simple login rate limiting: 8 attempts per 5 minutes per username/client key.
 
 ## User administration
@@ -31,15 +31,18 @@ List accounts:
 
     sudo -u andre camera-user list
 
-Passwords are never stored in plaintext.
+Passwords are never stored in plaintext. Password changes and account disable/enable actions increment an auth version, invalidating existing sessions.
 
 ## Security boundary
 
-Do not expose go2rtc port 1984 publicly. The browser must reach go2rtc only through `/go2rtc/` on the authenticated web application.
+Do not expose go2rtc port 1984 publicly. The browser reaches go2rtc signaling only through /go2rtc/ on the authenticated application.
 
-For Tailscale Serve, publish only the application root:
+Public access is provided by Tailscale Funnel:
 
-    sudo tailscale serve reset
-    sudo tailscale serve --bg --https=443 http://127.0.0.1:8090
+    sudo tailscale funnel --bg --https=443 http://127.0.0.1:8090
 
-Do not add a separate Tailscale Serve mapping for `/go2rtc`, because that would bypass the login.
+The separate raw TCP Funnel on port 10000 carries WebRTC media transport, not application HTTP or login traffic:
+
+    sudo tailscale funnel --bg --tcp=10000 tcp://127.0.0.1:8555
+
+Do not add a separate HTTP Funnel mapping for /go2rtc because that would bypass the application authentication boundary.
