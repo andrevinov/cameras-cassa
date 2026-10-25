@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+exec /opt/cameras-cassa/venv/bin/python /opt/cameras-cassa/web/manage_users.py "$@"
