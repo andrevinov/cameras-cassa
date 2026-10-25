@@ -290,13 +290,16 @@ async def go2rtc_http_proxy(request: Request, path: str):
         if key.lower() not in HOP_BY_HOP
     }
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-        upstream = await client.request(
-            request.method,
-            target,
-            headers=headers,
-            content=await request.body(),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+            upstream = await client.request(
+                request.method,
+                target,
+                headers=headers,
+                content=await request.body(),
+            )
+    except httpx.RequestError:
+        return Response(status_code=502)
 
     response_headers = {
         key: value
@@ -357,6 +360,8 @@ async def go2rtc_websocket_proxy(client: WebSocket):
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
             await asyncio.gather(*done, return_exceptions=True)
+    except (OSError, ConnectionClosed):
+        pass
     finally:
         try:
             await client.close()
