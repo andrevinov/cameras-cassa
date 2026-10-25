@@ -2,8 +2,11 @@
 *.env
 !*.example.env
 secrets.env
+session-secret
 rclone.conf
 go2rtc.yaml
+users.sqlite3
+*.sqlite3
 
 # Certificates / private keys
 *.key
@@ -16,6 +19,12 @@ cameras-buffer/
 recordings/
 state/
 logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
 
 # Editors / OS
 .vscode/
