@@ -11,11 +11,13 @@ Este repositório contém a infraestrutura de câmeras domésticas de André. Pr
 3. A interface doméstica vive em web/ e requer autenticação.
 4. O servidor alvo é Ubuntu Server x86_64.
 5. Serviços rodam como usuário não-root sempre que possível.
-6. Câmeras devem ser tratadas como dispositivos da LAN; não expor RTSP, go2rtc ou MediaMTX diretamente à internet.
+6. Câmeras devem ser tratadas como dispositivos da LAN; não expor RTSP, go2rtc HTTP API ou MediaMTX diretamente à internet.
 7. go2rtc:1984 deve permanecer em loopback. A aplicação web autentica e faz proxy de HTTP/WebSocket em /go2rtc/.
-8. Upload só pode apagar o arquivo local depois de transferência confirmada.
-9. Alterações destrutivas no Drive devem ter modo de teste ou documentação clara.
-10. O instalador deve permanecer idempotente: executá-lo novamente não deve quebrar uma instalação existente.
+8. O acesso público atual usa Tailscale Funnel: HTTPS 443 para FastAPI e TCP 10000 para transporte WebRTC.
+9. Talkback está desabilitado na configuração estável. Não reintroduzir dvrip:// para a iMX C. Consulte docs/talkback.md.
+10. Upload só pode apagar o arquivo local depois de transferência confirmada.
+11. Alterações destrutivas no Drive devem ter modo de teste ou documentação clara.
+12. O instalador deve permanecer idempotente: executá-lo novamente não deve quebrar uma instalação existente.
 
 ## Stack
 
@@ -24,7 +26,7 @@ Este repositório contém a infraestrutura de câmeras domésticas de André. Pr
 - FFmpeg
 - FastAPI / Uvicorn
 - SQLite / Argon2id
-- Tailscale Serve
+- Tailscale Funnel
 - rclone
 - systemd
 
@@ -33,9 +35,20 @@ Este repositório contém a infraestrutura de câmeras domésticas de André. Pr
 camera1 -> RTSP H264/AAC -> MediaMTX path camera1
 MediaMTX camera1 -> gravação fMP4 em segmentos de 10 minutos
 MediaMTX camera1 -> FFmpeg (video copy, AAC->Opus) -> MediaMTX camera1-web
-camera1-web + DVRIP backchannel -> go2rtc camera1-talk
-browser -> HTTPS -> FastAPI session -> /go2rtc proxy -> go2rtc
+MediaMTX camera1-web -> go2rtc camera1-talk (read-only)
+browser -> HTTPS Funnel -> FastAPI session -> /go2rtc proxy -> go2rtc signaling
+browser WebRTC media -> TCP Funnel :10000 -> go2rtc :8555/tcp
 segmento finalizado -> rclone moveto -> Google Drive
+
+## Talkback
+
+Estado comprovado:
+- microfone do navegador chega ao go2rtc;
+- RTSP/ONVIF da iMX C anuncia apenas recvonly;
+- dvrip:// foi uma hipótese incorreta para a porta Dahua/Intelbras 37777;
+- suporte futuro deve seguir o protocolo Dahua raw TCP/37777, testado separadamente antes de produção.
+
+Veja docs/talkback.md.
 
 ## Autenticação
 
