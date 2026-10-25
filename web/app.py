@@ -240,6 +240,7 @@ HOP_BY_HOP = {
     "upgrade",
     "host",
     "content-length",
+    "content-encoding",
 }
 
 
