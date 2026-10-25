@@ -4,7 +4,7 @@
 
 Replace a proprietary DVR/NVR dependency with a small, auditable Linux stack using open protocols where possible.
 
-## Data flow
+## Current data flow
 
     Intelbras iMX C Black
        |
@@ -26,21 +26,29 @@ Replace a proprietary DVR/NVR dependency with a small, auditable Linux stack usi
                 v
           MediaMTX /camera1-web
                 |
-                +---------------------+
-                                      |
-    camera DVRIP :37777 backchannel --+--> go2rtc /camera1-talk
-                                             |
-                                             | loopback HTTP/WebSocket
-                                             v
-                                    FastAPI authenticated proxy
-                                             |
-                                             | HTTPS
-                                             v
-                                         Browser
+                v
+          go2rtc /camera1-talk
+                |
+                | loopback HTTP/WebSocket
+                v
+       FastAPI authenticated proxy
+                |
+                | HTTPS via Tailscale Funnel :443
+                v
+             Browser
+
+WebRTC media uses a second public Tailscale Funnel TCP endpoint:
+
+    Internet TCP :10000
+        -> Tailscale Funnel
+        -> 127.0.0.1:8555
+        -> go2rtc WebRTC TCP
+
+go2rtc advertises the Funnel DNS name on port 10000 as its external ICE candidate.
 
 ## Authentication boundary
 
-FastAPI owns the user session. Both the dashboard and go2rtc HTTP/WebSocket traffic cross the same authentication boundary.
+FastAPI owns the user session. Both the dashboard and go2rtc HTTP/WebSocket signaling cross the same authentication boundary.
 
 - Dashboard: /
 - Login: /login
@@ -49,18 +57,28 @@ FastAPI owns the user session. Both the dashboard and go2rtc HTTP/WebSocket traf
 
 The application uses SQLite users, Argon2id password hashes, Secure/HttpOnly signed cookies, CSRF protection for login/logout and basic login rate limiting.
 
-During the current private deployment, Tailscale Serve exposes only the FastAPI application. There must be no separate Serve mapping for /go2rtc because that would bypass application authentication.
+The public HTTPS Funnel exposes only FastAPI. There is no separate Funnel path for /go2rtc; FastAPI proxies it after authentication.
 
-## Remote access evolution
+## Public family access
 
-Current:
-- Tailscale Serve provides trusted HTTPS.
-- Only tailnet members can reach the site.
+The verified public entry point is the Tailscale Funnel HTTPS hostname generated for the linuxrocks node.
 
-Future public family access:
-- place the same authenticated FastAPI application behind a public HTTPS domain;
-- keep go2rtc:1984 private;
-- provide WebRTC reachability with a controlled TURN/public ICE design.
+Clients do not need Tailscale installed.
+
+The public surfaces are:
+
+- HTTPS 443 -> authenticated FastAPI application
+- raw TCP 10000 -> go2rtc WebRTC transport
+
+The signaling path remains authenticated. WebRTC media is DTLS-SRTP encrypted and negotiated through the authenticated signaling session.
+
+## Talkback
+
+Talkback is currently disabled in the stable configuration.
+
+The iMX C RTSP/ONVIF endpoint advertises only recvonly media; no sendonly audio backchannel was found.
+
+The earlier dvrip:// experiment was a protocol mismatch. See docs/talkback.md for the evidence and the future Dahua TCP/37777 path.
 
 ## Storage behavior
 
@@ -76,12 +94,18 @@ camera-drive-retention removes remote recordings older than RETENTION_DAYS.
 
 ## Ports
 
-- 554/tcp on camera: RTSP source
-- 37777/tcp on camera: DVRIP / talkback
-- 8554/tcp on server: MediaMTX internal RTSP
-- 8555/tcp+udp: go2rtc WebRTC media
-- 1984/tcp: loopback-only go2rtc API
-- 8090/tcp: loopback-only authenticated FastAPI application
-- 443 via Tailscale Serve: HTTPS dashboard
+Camera LAN:
+- 554/tcp: RTSP source
+- 37777/tcp: proprietary Dahua/Intelbras protocol; not used by the stable stack today
+
+Server:
+- 8554/tcp: MediaMTX internal RTSP
+- 1984/tcp: go2rtc API, loopback only
+- 8090/tcp: authenticated FastAPI application, loopback only
+- 8555/tcp: go2rtc WebRTC TCP listener
+
+Public through Tailscale Funnel:
+- 443/tcp: HTTPS application
+- 10000/tcp: WebRTC TCP transport
 
 No camera management endpoint is exposed directly to the internet.
