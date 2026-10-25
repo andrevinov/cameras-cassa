@@ -32,7 +32,6 @@ prompt LAN_CIDR "Home LAN CIDR" "192.168.0.0/24"
 prompt CAMERA1_IP "Camera IP" "192.168.0.9"
 prompt CAMERA1_USER "Camera user" "admin"
 prompt CAMERA1_RTSP_PORT "Camera RTSP port" "554"
-prompt CAMERA1_DVRIP_PORT "Camera DVRIP/talkback port" "37777"
 prompt RCLONE_REMOTE "rclone remote name" "gdrive"
 prompt RCLONE_BASE_PATH "Drive recordings path" "Cameras-Casa/Gravacoes"
 prompt RECORD_SEGMENT_DURATION "Segment duration" "10m"
@@ -126,17 +125,20 @@ EOF
 chown root:"$SERVICE_GROUP" /etc/mediamtx.env
 chmod 0640 /etc/mediamtx.env
 
+# Talkback is intentionally disabled here.
+# The Intelbras iMX C RTSP/ONVIF endpoint exposes recvonly audio and the
+# old dvrip:// experiment used the wrong protocol family. See docs/talkback.md.
 cat > /etc/go2rtc.yaml <<EOF
 api:
   listen: "127.0.0.1:1984"
 rtsp:
   listen: ""
 webrtc:
-  listen: ":8555"
+  listen: ":8555/tcp"
+  candidates: []
 streams:
   camera1-talk:
     - 'rtsp://127.0.0.1:8554/camera1-web#backchannel=0'
-    - 'dvrip://$USER_URL:$PASS_URL@$CAMERA1_IP:$CAMERA1_DVRIP_PORT?backchannel=1'
 EOF
 chown root:"$SERVICE_GROUP" /etc/go2rtc.yaml
 chmod 0640 /etc/go2rtc.yaml
