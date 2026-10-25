@@ -56,7 +56,7 @@ VENV_DIR="/opt/cameras-cassa/venv"
 USERS_DB="/var/lib/cameras-cassa/users.sqlite3"
 SESSION_SECRET_FILE="/etc/cameras-cassa/session-secret"
 
-install -d -m 0750 /etc/cameras-cassa
+install -d -o root -g "$SERVICE_GROUP" -m 0750 /etc/cameras-cassa
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$BUFFER_DIR" "$STATE_DIR" "$LOG_DIR"
 install -d -m 0755 "$WEB_DIR"
 
