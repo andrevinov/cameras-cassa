@@ -51,15 +51,34 @@ fi
 BUFFER_DIR="/var/lib/cameras-cassa/buffer"
 STATE_DIR="/var/lib/cameras-cassa/state"
 LOG_DIR="/var/log/cameras-cassa"
+WEB_DIR="/opt/cameras-cassa/web"
+VENV_DIR="/opt/cameras-cassa/venv"
+USERS_DB="/var/lib/cameras-cassa/users.sqlite3"
+SESSION_SECRET_FILE="/etc/cameras-cassa/session-secret"
 
 install -d -m 0750 /etc/cameras-cassa
 install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0750 "$BUFFER_DIR" "$STATE_DIR" "$LOG_DIR"
-install -d -m 0755 /opt/cameras-cassa/web
-install -m 0644 "$ROOT/web/index.html" /opt/cameras-cassa/web/index.html
+install -d -m 0755 "$WEB_DIR"
+
+rm -rf "$WEB_DIR"/*
+cp -a "$ROOT/web/." "$WEB_DIR/"
+chown -R root:root "$WEB_DIR"
+find "$WEB_DIR" -type d -exec chmod 0755 {} +
+find "$WEB_DIR" -type f -exec chmod 0644 {} +
+
+python3 -m venv "$VENV_DIR"
+"$VENV_DIR/bin/pip" install --upgrade pip
+"$VENV_DIR/bin/pip" install -r "$WEB_DIR/requirements.txt"
 
 for script in "$ROOT"/scripts/*; do
   install -m 0755 "$script" "/usr/local/bin/$(basename "$script")"
 done
+
+if [ ! -s "$SESSION_SECRET_FILE" ]; then
+  python3 -c 'import secrets; print(secrets.token_urlsafe(48))' > "$SESSION_SECRET_FILE"
+fi
+chown root:"$SERVICE_GROUP" "$SESSION_SECRET_FILE"
+chmod 0640 "$SESSION_SECRET_FILE"
 
 {
   printf 'SERVICE_USER=%q\n' "$SERVICE_USER"
@@ -121,5 +140,10 @@ streams:
 EOF
 chown root:"$SERVICE_GROUP" /etc/go2rtc.yaml
 chmod 0640 /etc/go2rtc.yaml
+
+if ! sudo -H -u "$SERVICE_USER" env CAMERAS_USERS_DB="$USERS_DB" "$VENV_DIR/bin/python" "$WEB_DIR/manage_users.py" has-users; then
+  prompt WEB_ADMIN_USER "Initial website username" "$SERVICE_USER"
+  sudo -H -u "$SERVICE_USER" env CAMERAS_USERS_DB="$USERS_DB"     "$VENV_DIR/bin/python" "$WEB_DIR/manage_users.py" add "$WEB_ADMIN_USER"
+fi
 
 echo "Runtime configuration written under /etc and /var/lib/cameras-cassa."
