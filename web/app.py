@@ -4,16 +4,18 @@ import asyncio
 import os
 import secrets
 import sqlite3
+import struct
 import time
 from collections import defaultdict, deque
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Iterator
 
 import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from websockets.asyncio.client import connect as ws_connect
@@ -27,6 +29,12 @@ SECRET_FILE = Path(
 GO2RTC_BASE = os.environ.get("GO2RTC_BASE", "http://127.0.0.1:1984").rstrip("/")
 GO2RTC_WS_BASE = GO2RTC_BASE.replace("http://", "ws://", 1).replace("https://", "wss://", 1)
 SESSION_MAX_AGE = int(os.environ.get("CAMERAS_SESSION_MAX_AGE", str(7 * 24 * 60 * 60)))
+TALK_ENABLED = os.environ.get("CAMERAS_TALK_ENABLED") == "1"
+TALK_BRIDGE = os.environ.get("CAMERAS_TALK_BRIDGE", "/opt/cameras-cassa/talk-sdk/dahua-talk-bridge")
+TALK_CAMERA_IP = os.environ.get("CAMERAS_TALK_CAMERA_IP", "")
+TALK_CAMERA_USER = os.environ.get("CAMERAS_TALK_CAMERA_USER", "")
+TALK_PASSWORD_FILE = Path(os.environ.get("CAMERAS_TALK_PASSWORD_FILE", "/etc/cameras-cassa/talkback-password"))
+TALK_SDK_LIB = os.environ.get("CAMERAS_TALK_SDK_LIB", "/opt/cameras-cassa/talk-sdk/lib")
 
 if not SECRET_FILE.is_file():
     raise RuntimeError(f"Session secret file not found: {SECRET_FILE}")
@@ -49,12 +57,18 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 password_hasher = PasswordHasher()
 login_attempts: dict[str, deque[float]] = defaultdict(deque)
 login_lock = asyncio.Lock()
+talk_lock = asyncio.Lock()
 
 
-def db() -> sqlite3.Connection:
+@contextmanager
+def db() -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(DB_PATH)
     connection.row_factory = sqlite3.Row
-    return connection
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def init_db() -> None:
@@ -251,10 +265,131 @@ async def dashboard(request: Request):
     response = templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"username": request.session["user"], "csrf": request.session["csrf"]},
+        context={"username": request.session["user"], "csrf": request.session["csrf"], "talk_enabled": TALK_ENABLED},
     )
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.get("/talk/processor.js")
+async def talk_processor(request: Request):
+    if not authenticated(request):
+        return Response(status_code=401)
+    response = FileResponse(BASE_DIR / "talk-processor.js", media_type="text/javascript")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def talk_origin_allowed(client: WebSocket) -> bool:
+    host = client.headers.get("host", "")
+    return bool(host and client.headers.get("origin") == f"https://{host}")
+
+
+@app.websocket("/talk/ws")
+async def talk_websocket(client: WebSocket):
+    if (
+        not TALK_ENABLED
+        or not websocket_authenticated(client)
+        or not talk_origin_allowed(client)
+    ):
+        await client.close(code=4403)
+        return
+
+    await client.accept()
+    try:
+        csrf = await asyncio.wait_for(client.receive_text(), timeout=5)
+    except WebSocketDisconnect:
+        return
+    except asyncio.TimeoutError:
+        await client.close(code=4403)
+        return
+    if not secrets.compare_digest(csrf, str(client.session.get("csrf", ""))):
+        await client.close(code=4403)
+        return
+    try:
+        await asyncio.wait_for(talk_lock.acquire(), timeout=0.01)
+    except asyncio.TimeoutError:
+        await client.send_json({"error": "A câmera já está em uso para fala."})
+        await client.close(code=4409)
+        return
+
+    try:
+        process = None
+        try:
+            if not TALK_CAMERA_IP or not TALK_CAMERA_USER:
+                await client.send_json({"error": "Talkback não está configurado no servidor."})
+                return
+            password = TALK_PASSWORD_FILE.read_bytes()
+            if not 1 <= len(password) <= 256 or b"\0" in password:
+                await client.send_json({"error": "Senha da câmera inválida no servidor."})
+                return
+            process = await asyncio.create_subprocess_exec(
+                TALK_BRIDGE, TALK_CAMERA_IP, TALK_CAMERA_USER,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                env={**os.environ, "LD_LIBRARY_PATH": TALK_SDK_LIB},
+            )
+            assert process.stdin is not None and process.stdout is not None
+            process.stdin.write(struct.pack("<H", len(password)) + password)
+            await asyncio.wait_for(process.stdin.drain(), timeout=5)
+            line = await asyncio.wait_for(process.stdout.readline(), timeout=12)
+            if line != b"READY\n":
+                detail = line.decode("ascii", "replace").strip()
+                await client.send_json({"error": f"Câmera recusou a fala: {detail[:100]}"})
+                return
+            await client.send_json({"ready": True})
+
+            started = time.monotonic()
+            next_frame = started
+            while time.monotonic() - started < 60:
+                message = await asyncio.wait_for(client.receive(), timeout=3)
+                if message["type"] == "websocket.disconnect":
+                    break
+                if message.get("text") == "stop":
+                    break
+                frame = message.get("bytes")
+                if frame is None or len(frame) != 640:
+                    await client.close(code=1003)
+                    return
+                now = time.monotonic()
+                if next_frame > now:
+                    await asyncio.sleep(next_frame - now)
+                next_frame = max(next_frame, time.monotonic()) + 0.04
+                process.stdin.write(frame)
+                await asyncio.wait_for(process.stdin.drain(), timeout=2)
+        except asyncio.TimeoutError:
+            pass
+        except (OSError, BrokenPipeError):
+            try:
+                await client.send_json({"error": "Falha ao conectar à câmera."})
+            except (RuntimeError, OSError):
+                pass
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if process is not None:
+                if process.stdin is not None:
+                    try:
+                        process.stdin.close()
+                    except OSError:
+                        pass
+                if process.returncode is None:
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=3)
+                    except asyncio.TimeoutError:
+                        process.kill()
+                        await process.wait()
+            try:
+                await client.close()
+            except (RuntimeError, OSError):
+                pass
+    finally:
+        talk_lock.release()
 
 
 HOP_BY_HOP = {

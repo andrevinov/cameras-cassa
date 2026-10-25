@@ -20,11 +20,22 @@ O projeto recebe streams RTSP de câmeras locais, redistribui vídeo e áudio, g
 
 ## Talkback
 
-O botão de falar está desabilitado na configuração estável.
+Por padrão, o botão de falar está desabilitado. No servidor testado, ele foi
+ativado pela instalação opcional.
 
 A iMX C Black não anunciou um backchannel de áudio pelo RTSP/ONVIF. O antigo experimento dvrip:// usava a família de protocolo errada.
 
-Há trabalho experimental no go2rtc para o protocolo Dahua raw TCP/37777, mas ele ainda precisa ser integrado e testado separadamente.
+O go2rtc fixado neste projeto ainda não oferece suporte Dahua raw TCP/37777.
+A fala usa uma ponte opcional pela FastAPI e pelo NetSDK da Dahua.
+
+Uma captura do Mibo Smart confirmou fala do celular até o alto-falante da
+câmera por UDP/PTCP na LAN, com quadros DHAV de áudio PCMA/8000. Um teste
+isolado com o NetSDK da Dahua também confirmou talkback local por TCP/37777:
+a câmera aceitou 75 quadros de áudio PCMA/8000 e reproduziu o tom de teste.
+Em 2026-10-25, a ponte opcional foi instalada no servidor e a voz enviada pelo
+navegador foi ouvida no alto-falante da câmera. Em novas instalações, a fala
+continua desligada até a instalação opcional.
+O go2rtc continua responsável apenas pela reprodução.
 
 Veja docs/talkback.md.
 

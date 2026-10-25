@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""Summarize LAN talk traffic in PCAP captures without printing packet contents."""
+
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import struct
+from collections import Counter
+from pathlib import Path
+
+
+class CaptureError(Exception):
+    pass
+
+
+def packets(path: Path):
+    with path.open("rb") as capture:
+        magic = capture.read(4)
+        byte_order = {
+            b"\xd4\xc3\xb2\xa1": "<",
+            b"\xa1\xb2\xc3\xd4": ">",
+            b"\x4d\x3c\xb2\xa1": "<",
+            b"\xa1\xb2\x3c\x4d": ">",
+        }.get(magic)
+        if byte_order is None:
+            raise CaptureError(f"{path}: expected a classic PCAP file")
+        header = capture.read(20)
+        if len(header) != 20:
+            raise CaptureError(f"{path}: truncated PCAP header")
+        _, _, _, _, _, linktype = struct.unpack(byte_order + "HHiIII", header)
+        if linktype not in (1, 101, 113):
+            raise CaptureError(f"{path}: unsupported link type {linktype}")
+
+        while record := capture.read(16):
+            if len(record) != 16:
+                raise CaptureError(f"{path}: truncated packet header")
+            _, _, captured_len, _ = struct.unpack(byte_order + "IIII", record)
+            if captured_len > 16 * 1024 * 1024:
+                raise CaptureError(f"{path}: implausibly large packet")
+            data = capture.read(captured_len)
+            if len(data) != captured_len:
+                raise CaptureError(f"{path}: truncated packet")
+            yield linktype, data
+
+
+def ipv4_payload(linktype: int, packet: bytes):
+    if linktype == 1:  # Ethernet, including one or more VLAN tags
+        if len(packet) < 14:
+            return None
+        offset = 14
+        ethertype = int.from_bytes(packet[12:14], "big")
+        while ethertype in (0x8100, 0x88A8):
+            if len(packet) < offset + 4:
+                return None
+            ethertype = int.from_bytes(packet[offset + 2 : offset + 4], "big")
+            offset += 4
+        if ethertype != 0x0800:
+            return None
+    elif linktype == 113:  # Linux cooked capture v1
+        if len(packet) < 16 or packet[14:16] != b"\x08\x00":
+            return None
+        offset = 16
+    else:  # Raw IPv4
+        offset = 0
+
+    ip = packet[offset:]
+    if len(ip) < 20 or ip[0] >> 4 != 4:
+        return None
+    ihl = (ip[0] & 15) * 4
+    total_len = int.from_bytes(ip[2:4], "big")
+    if ihl < 20 or len(ip) < ihl or total_len < ihl:
+        return None
+    if int.from_bytes(ip[6:8], "big") & 0x1FFF:  # non-first fragment
+        return None
+    return (
+        ipaddress.IPv4Address(ip[12:16]),
+        ipaddress.IPv4Address(ip[16:20]),
+        ip[9],
+        ip[ihl : min(total_len, len(ip))],
+    )
+
+
+def tcp_payload(linktype: int, packet: bytes):
+    parsed = ipv4_payload(linktype, packet)
+    if parsed is None or parsed[2] != 6:
+        return None
+    source, destination, _, tcp = parsed
+    if len(tcp) < 20:
+        return None
+    data_offset = (tcp[12] >> 4) * 4
+    if data_offset < 20 or len(tcp) < data_offset:
+        return None
+    return (
+        source,
+        destination,
+        int.from_bytes(tcp[0:2], "big"),
+        int.from_bytes(tcp[2:4], "big"),
+        tcp[13],
+        tcp[data_offset:],
+    )
+
+
+def udp_payload(linktype: int, packet: bytes):
+    parsed = ipv4_payload(linktype, packet)
+    if parsed is None or parsed[2] != 17:
+        return None
+    source, destination, _, udp = parsed
+    if len(udp) < 8:
+        return None
+    declared_len = int.from_bytes(udp[4:6], "big")
+    if declared_len < 8:
+        return None
+    return (
+        source,
+        destination,
+        int.from_bytes(udp[0:2], "big"),
+        int.from_bytes(udp[2:4], "big"),
+        udp[8 : min(declared_len, len(udp))],
+    )
+
+
+SAMPLE_RATES = (8000, 4000, 8000, 11025, 16000, 20000, 22050, 32000, 44100, 48000)
+AUDIO_CODECS = {0x0A: "PCMU", 0x0E: "PCMA", 0x16: "PCMU"}
+
+
+def dhav_audio_formats(payload: bytes) -> list[str]:
+    """Recognize complete DHAV audio frames contained in one UDP packet."""
+    formats = []
+    offset = 0
+    while (offset := payload.find(b"DHAV", offset)) >= 0:
+        if len(payload) - offset >= 24:
+            frame_len = int.from_bytes(payload[offset + 12 : offset + 16], "little")
+            ext_len = payload[offset + 22]
+            if (
+                payload[offset + 4] == 0xF0
+                and 32 <= frame_len <= len(payload) - offset
+                and 24 + ext_len + 8 <= frame_len
+                and payload[offset + frame_len - 8 : offset + frame_len - 4] == b"dhav"
+            ):
+                ext = payload[offset + 24 : offset + 24 + ext_len]
+                if len(ext) >= 4 and ext[0] == 0x83:
+                    channels, codec, rate_index = ext[1:4]
+                elif len(ext) >= 5 and ext[0] == 0x8C:
+                    channels, codec, rate_index = ext[2:5]
+                else:
+                    channels = codec = rate_index = None
+                if codec is not None:
+                    name = AUDIO_CODECS.get(codec, f"codec-0x{codec:02x}")
+                    rate = SAMPLE_RATES[rate_index] if rate_index < len(SAMPLE_RATES) else 8000
+                    formats.append(f"{name}/{rate}/{channels}")
+        offset += 4
+    return formats
+
+
+def summarize(path: Path, camera: ipaddress.IPv4Address) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    sessions = set()
+    # PCAPdroid may substitute source headers on the return path. Identify
+    # that path by the client's local endpoint seen in the outgoing packets.
+    for linktype, packet in packets(path):
+        parsed = tcp_payload(linktype, packet)
+        if parsed is None:
+            continue
+        source, destination, source_port, dest_port, _, _ = parsed
+        if destination == camera and dest_port == 37777:
+            sessions.add((source, source_port))
+
+    udp_ports: Counter[int] = Counter()
+    udp_formats: Counter[str] = Counter()
+    for linktype, packet in packets(path):
+        counts["packets_in_file"] += 1
+        udp = udp_payload(linktype, packet)
+        if udp is not None and udp[1] == camera:
+            _, _, _, port, payload = udp
+            counts["udp_packets_to_camera"] += 1
+            counts["udp_payload_bytes_to_camera"] += len(payload)
+            counts["udp_ptcp_packets_to_camera"] += payload.startswith(b"PTCP")
+            udp_ports[port] += 1
+            udp_formats.update(dhav_audio_formats(payload))
+        parsed = tcp_payload(linktype, packet)
+        if parsed is None:
+            continue
+        source, destination, source_port, dest_port, flags, payload = parsed
+        if destination == camera and dest_port == 37777:
+            direction = "to_camera"
+            if flags & 0x02 and not flags & 0x10:  # SYN, without ACK
+                counts["connection_attempts"] += 1
+        elif (destination, dest_port) in sessions:
+            direction = "from_camera"
+        else:
+            continue
+        counts[f"packets_{direction}"] += 1
+        counts[f"payload_bytes_{direction}"] += len(payload)
+        counts[f"payload_packets_{direction}"] += bool(payload)
+        counts[f"dhav_markers_{direction}"] += payload.count(b"DHAV")
+    counts["distinct_client_connections"] = len(sessions)
+    counts["udp_destination_ports"] = dict(udp_ports.most_common(5))
+    counts["dhav_audio_formats_to_camera"] = dict(udp_formats)
+    return counts
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--camera-ip", type=ipaddress.IPv4Address, required=True)
+    parser.add_argument("idle", type=Path, help="PCAP with the app open, without talking")
+    parser.add_argument("talk", type=Path, help="PCAP while talking through the app")
+    args = parser.parse_args()
+    try:
+        results = {
+            "idle": summarize(args.idle, args.camera_ip),
+            "talk": summarize(args.talk, args.camera_ip),
+        }
+    except (CaptureError, OSError) as exc:
+        parser.exit(2, f"error: {exc}\n")
+
+    for label, counts in results.items():
+        print(f"[{label}]")
+        for key in (
+            "packets_in_file",
+            "connection_attempts",
+            "distinct_client_connections",
+            "packets_to_camera",
+            "packets_from_camera",
+            "payload_packets_to_camera",
+            "payload_packets_from_camera",
+            "payload_bytes_to_camera",
+            "payload_bytes_from_camera",
+            "dhav_markers_to_camera",
+            "dhav_markers_from_camera",
+            "udp_packets_to_camera",
+            "udp_payload_bytes_to_camera",
+            "udp_ptcp_packets_to_camera",
+            "udp_destination_ports",
+            "dhav_audio_formats_to_camera",
+        ):
+            print(f"{key}={counts[key]}")
+        print()
+    if results["talk"]["dhav_audio_formats_to_camera"]:
+        print("DHAV audio frames were observed toward the camera during talk.")
+    elif results["talk"]["udp_packets_to_camera"] == 0 and results["talk"]["payload_bytes_to_camera"] == 0:
+        print("No direct LAN path to this camera was visible during talk.")
+        print("Check the camera IP, app routing, and capture scope.")
+    print("Traffic alone does not prove that the camera played microphone audio.")
+    print("Confirm by listening at the camera and record the result separately.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

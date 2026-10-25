@@ -78,7 +78,16 @@ Talkback is currently disabled in the stable configuration.
 
 The iMX C RTSP/ONVIF endpoint advertises only recvonly media; no sendonly audio backchannel was found.
 
-The earlier dvrip:// experiment was a protocol mismatch. See docs/talkback.md for the evidence and the future Dahua TCP/37777 path.
+The earlier dvrip:// experiment was a protocol mismatch. See docs/talkback.md
+for the Dahua TCP/37777 evidence and optional bridge.
+
+A Mibo Smart LAN capture confirmed working phone-to-camera talkback over
+UDP/PTCP carrying DHAV PCMA/8000 audio. A separate Dahua NetSDK probe then
+confirmed working TCP/37777 talkback with PCMA/8000: the camera played the
+three-second test tone. An optional, authenticated FastAPI WebSocket now sends
+browser microphone audio to a short-lived NetSDK bridge for TCP/37777 talk.
+It remains disabled until separately installed and audibly verified on the
+server; go2rtc continues to provide playback.
 
 ## Storage behavior
 

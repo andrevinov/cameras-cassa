@@ -59,7 +59,34 @@ The HTTPS Funnel exposes only FastAPI. Do not add a separate /go2rtc Funnel mapp
 
 ## Talkback
 
-Stable talkback is disabled. See docs/talkback.md.
+Talkback is disabled on fresh installations until explicitly enabled. The local
+Dahua TCP/37777 channel was verified with a short tone, and the browser path
+was heard from the camera speaker on 2026-10-25. On the Ubuntu x86_64 server,
+make the updated repo
+and the official Linux64 NetSDK `.tar.gz` archive available, then run:
+
+    sudo apt install g++
+    sudo ./install/dahua-talkback.sh --sdk /path/to/General_NetSDK_Eng_Linux64_IS_V3.060.0000003.0.R.251127.tar.gz CAMERA_IP CAMERA_USER
+
+The helper asks for the **camera's local device password**. It compiles and
+installs the bridge and vendor libraries under `/opt/cameras-cassa/talk-sdk`,
+updates the web virtual environment from `web/requirements.txt`,
+copies the web code, creates `/etc/cameras-cassa/talkback-password` and
+`talkback.env`, updates the camera-web service, and restarts that service. It
+does not change go2rtc or MediaMTX. Only `camera-web` receives the optional
+configuration; the vendor libraries are loaded by its short-lived bridge
+process.
+
+Open the authenticated dashboard over HTTPS. Hold **Segure para falar**, allow
+microphone access, speak while holding, then release. Have someone next to the
+camera report whether the voice played. The button shows connection errors.
+For a quick rollback, disable the optional environment file and restart the
+web service:
+
+    sudo mv /etc/cameras-cassa/talkback.env /etc/cameras-cassa/talkback.env.disabled
+    sudo systemctl restart camera-web.service
+
+See docs/talkback.md for protocol evidence and details.
 
 Do not add the old dvrip:// backchannel to /etc/go2rtc.yaml.
 

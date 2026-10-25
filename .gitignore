@@ -19,6 +19,8 @@ cameras-buffer/
 recordings/
 state/
 logs/
+*.pcap
+*.pcapng
 
 # Python
 __pycache__/

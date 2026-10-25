@@ -11,6 +11,7 @@ WorkingDirectory=/opt/cameras-cassa/web
 Environment=CAMERAS_USERS_DB=/var/lib/cameras-cassa/users.sqlite3
 Environment=CAMERAS_SESSION_SECRET_FILE=/etc/cameras-cassa/session-secret
 Environment=GO2RTC_BASE=http://127.0.0.1:1984
+EnvironmentFile=-/etc/cameras-cassa/talkback.env
 ExecStart=/opt/cameras-cassa/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8090 --workers 1
 Restart=on-failure
 RestartSec=3

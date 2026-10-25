@@ -11,7 +11,7 @@
     main{max-width:1200px;margin:auto;padding:20px}.camera{background:#1c1c1c;border:1px solid #333;border-radius:10px;overflow:hidden}.camera h2{margin:0;padding:12px 16px;font-size:18px}
     iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}.actions{display:flex;flex-wrap:wrap;gap:10px;padding:12px;align-items:center}
     button{min-height:42px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#292929;color:#fff;cursor:pointer}
-    button:disabled{opacity:.45;cursor:not-allowed}.volume{display:flex;align-items:center;gap:8px;color:#ccc}.volume input{width:150px}
+    button:disabled{opacity:.45;cursor:not-allowed}#talkButton{touch-action:none}#talkButton.active{background:#8b241e;border-color:#c9534c}.volume{display:flex;align-items:center;gap:8px;color:#ccc}.volume input{width:150px}
     .status{padding:0 16px 14px;color:#aaa;font-size:13px}.logout{min-height:auto;padding:6px 10px}
   </style>
 </head>
@@ -27,14 +27,16 @@
     <div class="actions">
       <button id="soundButton" type="button">🔇 Ligar som</button>
       <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="1"></label>
-      <button type="button" disabled title="A iMX C não expõe talkback pelo RTSP/ONVIF; suporte TCP/37777 Dahua ainda é experimental.">🎙 Falar (em desenvolvimento)</button>
+      <button id="talkButton" type="button" {% if not talk_enabled %}disabled title="Fala ainda não ativada neste servidor"{% endif %}>🎙 Segure para falar</button>
       <button id="reconnectButton" type="button">↻ Reconectar</button>
     </div>
     <div class="status" id="status">Online · vídeo + áudio</div>
+    <div class="status" id="talkStatus" role="status" aria-live="polite"></div>
   </section>
 </main>
 <script>
 const iframe=document.getElementById("camera1"),soundButton=document.getElementById("soundButton"),volume=document.getElementById("volume"),reconnectButton=document.getElementById("reconnectButton"),status=document.getElementById("status");
+const talkButton=document.getElementById("talkButton"),talkStatus=document.getElementById("talkStatus"),talkCsrf={{ csrf|tojson }};
 let soundEnabled=false;
 function playerVideo(){try{return iframe.contentDocument?.getElementById("video")||null}catch(_){return null}}
 function applyAudioState(){const video=playerVideo();if(!video)return;video.muted=!soundEnabled;video.volume=Number(volume.value);if(soundEnabled)video.play().catch(()=>{})}
@@ -42,6 +44,74 @@ iframe.addEventListener("load",()=>{applyAudioState();status.textContent="Online
 soundButton.addEventListener("click",()=>{soundEnabled=!soundEnabled;soundButton.textContent=soundEnabled?"🔊 Desligar som":"🔇 Ligar som";applyAudioState()});
 volume.addEventListener("input",applyAudioState);
 reconnectButton.addEventListener("click",()=>{iframe.src=iframe.src});
+
+let talkSession=null;
+function endTalk(){
+  const session=talkSession;
+  talkSession=null;
+  talkButton.classList.remove("active");
+  talkButton.setAttribute("aria-pressed","false");
+  talkButton.textContent="🎙 Segure para falar";
+  if(!session)return;
+  try{if(session.socket?.readyState===WebSocket.OPEN)session.socket.send("stop")}catch(_){}
+  try{session.socket?.close()}catch(_){}
+  try{session.node?.disconnect()}catch(_){}
+  try{session.source?.disconnect()}catch(_){}
+  try{session.context?.close()}catch(_){}
+  session.stream?.getTracks().forEach(track=>track.stop());
+  if(talkStatus.textContent==="Falando…"||talkStatus.textContent==="Conectando fala…")talkStatus.textContent="Fala encerrada";
+}
+async function beginTalk(){
+  if(talkSession||talkButton.disabled)return;
+  const session={};
+  talkSession=session;
+  talkButton.classList.add("active");
+  talkButton.setAttribute("aria-pressed","true");
+  talkButton.textContent="🎙 Solte para parar";
+  talkStatus.textContent="Conectando fala…";
+  try{
+    session.context=new AudioContext();
+    await session.context.resume();
+    if(talkSession!==session)return;
+    session.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false});
+    if(talkSession!==session){session.stream.getTracks().forEach(track=>track.stop());return}
+    const url=`${location.protocol==="https:"?"wss":"ws"}://${location.host}/talk/ws`;
+    session.socket=new WebSocket(url);
+    await new Promise((resolve,reject)=>{
+      session.socket.onopen=()=>session.socket.send(talkCsrf);
+      session.socket.onmessage=event=>{
+        let message;try{message=JSON.parse(event.data)}catch(_){reject(new Error("Resposta de fala inválida"));return}
+        if(message.ready)resolve();else if(message.error)reject(new Error(message.error));
+      };
+      session.socket.onerror=()=>reject(new Error("Não foi possível abrir a fala"));
+      session.socket.onclose=()=>reject(new Error("Conexão de fala encerrada"));
+    });
+    if(talkSession!==session)return;
+    session.socket.onclose=()=>{if(talkSession===session){endTalk();talkStatus.textContent="Conexão de fala encerrada"}};
+    session.socket.onmessage=event=>{try{const message=JSON.parse(event.data);if(message.error){endTalk();talkStatus.textContent=message.error}}catch(_){}};
+    await session.context.audioWorklet.addModule("/talk/processor.js");
+    if(talkSession!==session)return;
+    session.source=session.context.createMediaStreamSource(session.stream);
+    session.node=new AudioWorkletNode(session.context,"camera-talk");
+    const silent=session.context.createGain();silent.gain.value=0;
+    session.source.connect(session.node);session.node.connect(silent);silent.connect(session.context.destination);
+    session.node.port.onmessage=event=>{
+      if(session.socket.readyState===WebSocket.OPEN&&session.socket.bufferedAmount<6400)session.socket.send(event.data);
+    };
+    if(talkSession===session)talkStatus.textContent="Falando…";
+  }catch(error){
+    if(talkSession===session){endTalk();talkStatus.textContent=error.message||"Falha ao iniciar fala"}
+  }
+}
+if(!talkButton.disabled){
+  talkButton.addEventListener("pointerdown",event=>{event.preventDefault();talkButton.setPointerCapture(event.pointerId);beginTalk()});
+  talkButton.addEventListener("pointerup",endTalk);
+  talkButton.addEventListener("pointercancel",endTalk);
+  talkButton.addEventListener("lostpointercapture",endTalk);
+  talkButton.addEventListener("keydown",event=>{if((event.key===" "||event.key==="Enter")&&!event.repeat){event.preventDefault();beginTalk()}});
+  talkButton.addEventListener("keyup",event=>{if(event.key===" "||event.key==="Enter"){event.preventDefault();endTalk()}});
+  window.addEventListener("pagehide",endTalk);
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Build and run an isolated TCP/37777 talk experiment using a local Dahua NetSDK."""
+
+from __future__ import annotations
+
+import argparse
+import ipaddress
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+def fail(message: str) -> None:
+    raise SystemExit(message)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--sdk", type=Path, required=True, help="extracted Linux64 NetSDK directory")
+    parser.add_argument("--camera-ip", required=True)
+    parser.add_argument("--user", required=True, help="camera login name; password is prompted privately")
+    parser.add_argument("--query-only", action="store_true", help="check talk support without sending audio")
+    args = parser.parse_args()
+
+    if platform.system() != "Linux" or platform.machine() != "x86_64":
+        fail("This probe needs Linux x86_64 and the matching Linux64 NetSDK")
+    try:
+        ipaddress.IPv4Address(args.camera_ip)
+    except ipaddress.AddressValueError as error:
+        fail(f"Invalid camera IPv4 address: {error}")
+    sdk = args.sdk.expanduser().resolve()
+    if not sdk.is_dir():
+        fail("--sdk must point to an extracted NetSDK directory")
+    headers = sorted(sdk.rglob("dhnetsdk.h"))
+    libraries = sorted(sdk.rglob("libdhnetsdk.so"))
+    if len(headers) != 1 or len(libraries) != 1:
+        fail(f"Expected one dhnetsdk.h and one libdhnetsdk.so; found {len(headers)} and {len(libraries)}")
+    if not shutil.which("g++"):
+        fail("Install g++ first (sudo apt install g++)")
+    if not args.query_only and not shutil.which("ffmpeg"):
+        fail("Install FFmpeg first (sudo apt install ffmpeg)")
+
+    source = Path(__file__).with_suffix(".cpp")
+    with tempfile.TemporaryDirectory(prefix="dahua-talk-") as temp:
+        binary = Path(temp) / "probe"
+        audio = Path(temp) / "tone.alaw"
+        libdir = libraries[0].parent
+        # Vendor bundles can put dependent .so files in nearby subdirectories.
+        library_dirs = {path.parent for path in sdk.rglob("*.so*") if path.is_file()}
+        library_dirs.add(libdir)
+        environment = os.environ.copy()
+        environment["LD_LIBRARY_PATH"] = os.pathsep.join(
+            [*(str(path) for path in sorted(library_dirs)),
+             environment.get("LD_LIBRARY_PATH", "")]
+        )
+        compile_command = [
+            "g++", "-std=c++11", "-O2", "-Wall", "-Wextra",
+            "-isystem", str(headers[0].parent), str(source),
+            "-L", str(libdir),
+            *(f"-Wl,-rpath-link,{path}" for path in sorted(library_dirs)),
+            "-ldhnetsdk", "-o", str(binary),
+        ]
+        print("Compiling probe against local NetSDK...", flush=True)
+        subprocess.run(compile_command, check=True, env=environment)
+        if not args.query_only:
+            subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                 "-f", "lavfi", "-i", "sine=frequency=750:sample_rate=8000:duration=3",
+                 "-ac", "1", "-c:a", "pcm_alaw", "-f", "alaw", str(audio)],
+                check=True,
+            )
+        print("Connecting to camera via TCP/37777...", flush=True)
+        completed = subprocess.run(
+            [str(binary), args.camera_ip, args.user, str(audio),
+             "query" if args.query_only else "play"],
+            env=environment,
+        )
+        raise SystemExit(completed.returncode)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except subprocess.CalledProcessError as error:
+        fail(f"Probe preparation failed (exit {error.returncode})")
