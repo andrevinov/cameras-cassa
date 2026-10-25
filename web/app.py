@@ -67,17 +67,43 @@ def init_db() -> None:
                 password_hash TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                auth_version INTEGER NOT NULL DEFAULT 1
             )
             """
         )
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+        if "auth_version" not in columns:
+            connection.execute("ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1")
 
 
 init_db()
 
 
 def authenticated(request: Request) -> bool:
-    return bool(request.session.get("user"))
+    username = request.session.get("user")
+    version = request.session.get("auth_version")
+    if not username or version is None:
+        return False
+    with db() as connection:
+        row = connection.execute(
+            "SELECT enabled, auth_version FROM users WHERE username = ? COLLATE NOCASE",
+            (username,),
+        ).fetchone()
+    return bool(row and row["enabled"] and row["auth_version"] == version)
+
+
+def websocket_authenticated(client: WebSocket) -> bool:
+    username = client.session.get("user")
+    version = client.session.get("auth_version")
+    if not username or version is None:
+        return False
+    with db() as connection:
+        row = connection.execute(
+            "SELECT enabled, auth_version FROM users WHERE username = ? COLLATE NOCASE",
+            (username,),
+        ).fetchone()
+    return bool(row and row["enabled"] and row["auth_version"] == version)
 
 
 def client_key(request: Request, username: str) -> str:
@@ -172,7 +198,7 @@ async def login(
 
     with db() as connection:
         row = connection.execute(
-            "SELECT username, password_hash, enabled FROM users WHERE username = ? COLLATE NOCASE",
+            "SELECT username, password_hash, enabled, auth_version FROM users WHERE username = ? COLLATE NOCASE",
             (username,),
         ).fetchone()
 
@@ -201,6 +227,7 @@ async def login(
 
     request.session.clear()
     request.session["user"] = row["username"]
+    request.session["auth_version"] = row["auth_version"]
     request.session["csrf"] = secrets.token_urlsafe(24)
     await clear_attempts(key)
     return RedirectResponse("/", status_code=303)
@@ -219,6 +246,7 @@ async def logout(request: Request, csrf: Annotated[str, Form()]):
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     if not authenticated(request):
+        request.session.clear()
         return RedirectResponse("/login", status_code=303)
     response = templates.TemplateResponse(
         request=request,
@@ -285,7 +313,7 @@ async def go2rtc_http_proxy(request: Request, path: str):
 
 @app.websocket("/go2rtc/api/ws")
 async def go2rtc_websocket_proxy(client: WebSocket):
-    if not client.session.get("user"):
+    if not websocket_authenticated(client):
         await client.close(code=4401)
         return
 
