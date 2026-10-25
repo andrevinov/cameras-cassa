@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Câmeras da Casa</title>
+  <style>
+    *{box-sizing:border-box} body{margin:0;background:#111;color:#eee;font-family:system-ui,sans-serif}
+    header{padding:14px 20px;background:#191919;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between;gap:16px}
+    header h1{margin:0;font-size:22px} .account{display:flex;align-items:center;gap:12px;color:#aaa;font-size:14px}.account form{margin:0}
+    main{max-width:1200px;margin:auto;padding:20px}.camera{background:#1c1c1c;border:1px solid #333;border-radius:10px;overflow:hidden}.camera h2{margin:0;padding:12px 16px;font-size:18px}
+    iframe{display:block;width:100%;aspect-ratio:16/9;border:0;background:#000}.actions{display:flex;flex-wrap:wrap;gap:10px;padding:12px;align-items:center}
+    button{min-height:42px;padding:8px 14px;border-radius:6px;border:1px solid #555;background:#292929;color:#fff;cursor:pointer}.active{background:#7b2020;border-color:#aa3030}
+    .volume{display:flex;align-items:center;gap:8px;color:#ccc}.volume input{width:150px}.status{padding:0 16px 14px;color:#aaa;font-size:13px}.logout{min-height:auto;padding:6px 10px}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Câmeras da Casa</h1>
+  <div class="account"><span>{{ username }}</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="logout" type="submit">Sair</button></form></div>
+</header>
+<main>
+  <section class="camera">
+    <h2>Câmera 1</h2>
+    <iframe id="camera1" allow="autoplay; microphone" src="/go2rtc/webrtc.html?src=camera1-talk&media=video+audio"></iframe>
+    <div class="actions">
+      <button id="soundButton" type="button">🔇 Ligar som</button>
+      <label class="volume">Volume <input id="volume" type="range" min="0" max="1" step="0.05" value="1"></label>
+      <button id="talkButton" type="button">🎙 Falar</button>
+      <button id="reconnectButton" type="button">↻ Reconectar</button>
+    </div>
+    <div class="status" id="status">Online · vídeo + áudio</div>
+  </section>
+</main>
+<script>
+const iframe=document.getElementById("camera1"),soundButton=document.getElementById("soundButton"),volume=document.getElementById("volume"),talkButton=document.getElementById("talkButton"),reconnectButton=document.getElementById("reconnectButton"),status=document.getElementById("status");
+let talking=false,soundEnabled=false;
+function playerVideo(){try{return iframe.contentDocument?.getElementById("video")||null}catch(_){return null}}
+function applyAudioState(){const video=playerVideo();if(!video)return;video.muted=!soundEnabled;video.volume=Number(volume.value);if(soundEnabled)video.play().catch(()=>{})}
+function playerUrl(withMic){return "/go2rtc/webrtc.html?src=camera1-talk&media="+(withMic?"video+audio+microphone":"video+audio")}
+function reconnect(){iframe.src=playerUrl(talking)}
+iframe.addEventListener("load",()=>{applyAudioState();status.textContent=talking?"Online · vídeo + áudio · microfone ativo":"Online · vídeo + áudio"});
+soundButton.addEventListener("click",()=>{soundEnabled=!soundEnabled;soundButton.textContent=soundEnabled?"🔊 Desligar som":"🔇 Ligar som";applyAudioState()});
+volume.addEventListener("input",applyAudioState);
+talkButton.addEventListener("click",()=>{if(!window.isSecureContext){status.textContent="Microfone bloqueado: use HTTPS.";return}talking=!talking;talkButton.textContent=talking?"⏹ Parar de falar":"🎙 Falar";talkButton.classList.toggle("active",talking);status.textContent=talking?"Solicitando acesso ao microfone...":"Reconectando sem microfone...";reconnect()});
+reconnectButton.addEventListener("click",reconnect);
+</script>
+</body>
+</html>
