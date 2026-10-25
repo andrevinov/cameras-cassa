@@ -1,15 +1,20 @@
 # Generated runtime file is /etc/go2rtc.yaml and MUST NOT be committed.
+# The installer replaces the empty candidates list with the Tailscale Funnel
+# DNS name on TCP port 10000 after Tailscale authentication.
 
 api:
-  listen: ":1984"
+  listen: "127.0.0.1:1984"
 
 rtsp:
   listen: ""
 
 webrtc:
-  listen: ":8555"
+  listen: ":8555/tcp"
+  candidates: []
 
 streams:
   camera1-talk:
     - rtsp://127.0.0.1:8554/camera1-web#backchannel=0
-    - dvrip://admin:CHANGE_ME@192.168.0.9:37777?backchannel=1
+
+# Talkback is intentionally disabled in the stable configuration.
+# See docs/talkback.md.
