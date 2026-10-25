@@ -30,25 +30,37 @@ Replace a proprietary DVR/NVR dependency with a small, auditable Linux stack usi
                                       |
     camera DVRIP :37777 backchannel --+--> go2rtc /camera1-talk
                                              |
+                                             | loopback HTTP/WebSocket
                                              v
-                                           Caddy
-                                      HTTPS / WebSocket
+                                    FastAPI authenticated proxy
                                              |
+                                             | HTTPS
                                              v
                                          Browser
 
-## HTTPS
+## Authentication boundary
 
-Caddy terminates HTTPS on port 8443 with an internal CA.
+FastAPI owns the user session. Both the dashboard and go2rtc HTTP/WebSocket traffic cross the same authentication boundary.
 
-The dashboard backend listens only on 127.0.0.1:8090. go2rtc's HTTP/WebSocket API listens only on 127.0.0.1:1984. Caddy publishes both under a single HTTPS origin:
+- Dashboard: /
+- Login: /login
+- go2rtc proxy: /go2rtc/*
+- go2rtc API itself: 127.0.0.1:1984 only
 
-- / -> dashboard
-- /go2rtc/* -> go2rtc
+The application uses SQLite users, Argon2id password hashes, Secure/HttpOnly signed cookies, CSRF protection for login/logout and basic login rate limiting.
 
-The go2rtc WebRTC media transport still uses port 8555.
+During the current private deployment, Tailscale Serve exposes only the FastAPI application. There must be no separate Serve mapping for /go2rtc because that would bypass application authentication.
 
-Each client device must trust Caddy's local root CA once. This is required for browser microphone access because getUserMedia only works in a secure context.
+## Remote access evolution
+
+Current:
+- Tailscale Serve provides trusted HTTPS.
+- Only tailnet members can reach the site.
+
+Future public family access:
+- place the same authenticated FastAPI application behind a public HTTPS domain;
+- keep go2rtc:1984 private;
+- provide WebRTC reachability with a controlled TURN/public ICE design.
 
 ## Storage behavior
 
@@ -68,8 +80,8 @@ camera-drive-retention removes remote recordings older than RETENTION_DAYS.
 - 37777/tcp on camera: DVRIP / talkback
 - 8554/tcp on server: MediaMTX internal RTSP
 - 8555/tcp+udp: go2rtc WebRTC media
-- 8443/tcp: local HTTPS dashboard
-- 8090/tcp: loopback-only dashboard backend
 - 1984/tcp: loopback-only go2rtc API
+- 8090/tcp: loopback-only authenticated FastAPI application
+- 443 via Tailscale Serve: HTTPS dashboard
 
-No public internet exposure is required.
+No camera management endpoint is exposed directly to the internet.
