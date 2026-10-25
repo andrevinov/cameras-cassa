@@ -16,7 +16,13 @@ esac
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y curl ca-certificates caddy ffmpeg python3 ufw psmisc tar
+apt-get install -y curl ca-certificates ffmpeg python3 python3-venv ufw psmisc tar
+
+install -d -m 0755 /usr/share/keyrings
+curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg   -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list   -o /etc/apt/sources.list.d/tailscale.list
+apt-get update
+apt-get install -y tailscale
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -33,4 +39,4 @@ install -m 0644 "$tmp/mediamtx.yml" /usr/local/etc/mediamtx/mediamtx.yml
 curl -fL "https://github.com/AlexxIT/go2rtc/releases/download/v$GO2RTC_VERSION/go2rtc_linux_${ARCH}" -o /usr/local/bin/go2rtc
 chmod 0755 /usr/local/bin/go2rtc
 
-echo "Installed Caddy, MediaMTX $MEDIAMTX_VERSION, go2rtc $GO2RTC_VERSION, FFmpeg and rclone."
+echo "Installed Tailscale, MediaMTX $MEDIAMTX_VERSION, go2rtc $GO2RTC_VERSION, FFmpeg and rclone."
