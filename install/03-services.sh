@@ -15,12 +15,9 @@ for unit in "$ROOT"/systemd/*; do
   chmod 0644 "/etc/systemd/system/$name"
 done
 
-sed   -e "s/__SERVER_LAN_IP__/$SERVER_LAN_IP/g"   "$ROOT/caddy/Caddyfile" > /etc/caddy/Caddyfile
-
 ufw allow OpenSSH >/dev/null
-ufw allow from "$LAN_CIDR" to any port 8443 proto tcp >/dev/null
-ufw allow from "$LAN_CIDR" to any port 8555 proto tcp >/dev/null
-ufw allow from "$LAN_CIDR" to any port 8555 proto udp >/dev/null
+ufw allow in on tailscale0 to any port 8555 proto tcp >/dev/null || true
+ufw allow in on tailscale0 to any port 8555 proto udp >/dev/null || true
 
 if ! ufw status | grep -q '^Status: active'; then
   printf "UFW is inactive. Enable it now? [y/N]: " >/dev/tty
@@ -42,19 +39,24 @@ if ! sudo -H -u "$SERVICE_USER" rclone listremotes 2>/dev/null | grep -qx "$RCLO
   fi
 fi
 
+if ! tailscale status >/dev/null 2>&1; then
+  echo
+  echo "Tailscale needs authentication."
+  tailscale up --hostname=linuxrocks
+fi
+
 systemctl daemon-reload
 systemctl enable --now mediamtx.service
 systemctl enable --now camera1-webrtc-audio.service
 systemctl enable --now go2rtc.service
 systemctl enable --now camera-web.service
-systemctl enable --now caddy.service
-systemctl restart caddy.service
 systemctl enable --now camera-retry-upload.timer
 systemctl enable --now camera-buffer-guard.timer
 systemctl enable --now camera-drive-retention.timer
 
+tailscale serve reset
+tailscale serve --bg --https=443 http://127.0.0.1:8090
+
 echo
-echo "Dashboard: https://$SERVER_LAN_IP:8443"
-echo "Caddy local CA: /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
-echo
-echo "Install that root CA certificate on each client device once."
+echo "Authenticated dashboard:"
+tailscale serve status
