@@ -16,8 +16,6 @@ for unit in "$ROOT"/systemd/*; do
 done
 
 ufw allow OpenSSH >/dev/null
-ufw allow in on tailscale0 to any port 8555 proto tcp >/dev/null || true
-ufw allow in on tailscale0 to any port 8555 proto udp >/dev/null || true
 
 if ! ufw status | grep -q '^Status: active'; then
   printf "UFW is inactive. Enable it now? [y/N]: " >/dev/tty
@@ -39,24 +37,41 @@ if ! sudo -H -u "$SERVICE_USER" rclone listremotes 2>/dev/null | grep -qx "$RCLO
   fi
 fi
 
-if ! tailscale status >/dev/null 2>&1; then
+if ! tailscale ip -4 >/dev/null 2>&1; then
   echo
   echo "Tailscale needs authentication."
   tailscale up --hostname=linuxrocks
 fi
 
+TAILSCALE_DNS="$(
+  tailscale status --json |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))'
+)"
+
+if [ -z "$TAILSCALE_DNS" ]; then
+  echo "Could not determine Tailscale DNS name." >&2
+  exit 1
+fi
+
+sed -i   "s#^  candidates: \[\]#  candidates:\n    - $TAILSCALE_DNS:10000#"   /etc/go2rtc.yaml
+
 systemctl daemon-reload
 systemctl enable --now mediamtx.service
 systemctl enable --now camera1-webrtc-audio.service
 systemctl enable --now go2rtc.service
+systemctl restart go2rtc.service
 systemctl enable --now camera-web.service
+systemctl restart camera-web.service
 systemctl enable --now camera-retry-upload.timer
 systemctl enable --now camera-buffer-guard.timer
 systemctl enable --now camera-drive-retention.timer
 
+# Public family access: authenticated HTTPS app plus WebRTC TCP transport.
+# go2rtc HTTP signaling remains loopback-only behind FastAPI.
 tailscale serve reset
-tailscale serve --bg --https=443 http://127.0.0.1:8090
+tailscale funnel --bg --https=443 http://127.0.0.1:8090
+tailscale funnel --bg --tcp=10000 tcp://127.0.0.1:8555
 
 echo
-echo "Authenticated dashboard:"
-tailscale serve status
+echo "Public authenticated dashboard and WebRTC transport:"
+tailscale funnel status
