@@ -1,5 +1,5 @@
 [Unit]
-Description=Local camera web interface
+Description=Authenticated camera web application
 After=network-online.target go2rtc.service
 Wants=network-online.target
 
@@ -8,7 +8,10 @@ Type=simple
 User=__SERVICE_USER__
 Group=__SERVICE_GROUP__
 WorkingDirectory=/opt/cameras-cassa/web
-ExecStart=/usr/bin/python3 -m http.server 8090 --bind 127.0.0.1
+Environment=CAMERAS_USERS_DB=/var/lib/cameras-cassa/users.sqlite3
+Environment=CAMERAS_SESSION_SECRET_FILE=/etc/cameras-cassa/session-secret
+Environment=GO2RTC_BASE=http://127.0.0.1:1984
+ExecStart=/opt/cameras-cassa/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8090 --workers 1
 Restart=on-failure
 RestartSec=3
 
