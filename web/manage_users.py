@@ -26,10 +26,14 @@ def db() -> sqlite3.Connection:
             password_hash TEXT NOT NULL,
             enabled INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            auth_version INTEGER NOT NULL DEFAULT 1
         )
         """
     )
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(users)")}
+    if "auth_version" not in columns:
+        connection.execute("ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 1")
     return connection
 
 
@@ -71,7 +75,7 @@ def set_password(username: str) -> None:
     password_hash = ph.hash(read_password())
     with db() as connection:
         cursor = connection.execute(
-            "UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ? COLLATE NOCASE",
+            "UPDATE users SET password_hash = ?, auth_version = auth_version + 1, updated_at = CURRENT_TIMESTAMP WHERE username = ? COLLATE NOCASE",
             (password_hash, username),
         )
         if cursor.rowcount == 0:
@@ -83,7 +87,7 @@ def set_enabled(username: str, enabled: bool) -> None:
     username = require_username(username)
     with db() as connection:
         cursor = connection.execute(
-            "UPDATE users SET enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ? COLLATE NOCASE",
+            "UPDATE users SET enabled = ?, auth_version = auth_version + 1, updated_at = CURRENT_TIMESTAMP WHERE username = ? COLLATE NOCASE",
             (1 if enabled else 0, username),
         )
         if cursor.rowcount == 0:
